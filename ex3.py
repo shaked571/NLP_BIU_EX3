@@ -2,14 +2,14 @@ import pandas as pd
 from collections import defaultdict, Counter
 from itertools import combinations
 from sklearn.feature_extraction import DictVectorizer
-# data_path = r"C:\Dev\NLP_EX3\data\wikipedia.tinysample.trees.lemmatized.txt"
+from tqdm import tqdm
+data_path = r"C:\Dev\NLP_EX3\data\wikipedia.tinysample.trees.lemmatized.txt"
 # data = pd.read_csv(data_path, sep='\t',
 #                 names=['ID', 'FORM', 'LEMMA', 'CPOSTAG', 'POSTAG', 'FEATS', 'HEAD', 'DEPREL', 'PHEAD', 'PDEPREL'],
 #                 header=None)
-#
-#
+# data["Sentence"] = (data['ID'].diff()<0).cumsum()
 # print(data.head(20))
-
+# print(data.Sentence)
 
 class Vectorizer(object):
     MIN_OCCUR = 75
@@ -25,10 +25,12 @@ class Vectorizer(object):
         self.word_index = {word: idx for idx, word in enumerate(self.cm_sent.keys())}
 
     def read_data(self, data_path):
-        return pd.read_csv(data_path,
+        df = pd.read_csv(data_path,
                            sep='\t',
                            names=['ID', 'FORM', 'LEMMA', 'CPOSTAG', 'POSTAG', 'FEATS', 'HEAD', 'DEPREL', 'PHEAD','PDEPREL'],
                            header=None)
+        df['Sentence'] = (df['ID'].diff() < 0).cumsum()
+        return df
 
     def count_words_in_sent(self, sent):
         for w1, w2 in combinations(sent, 2):
@@ -38,15 +40,9 @@ class Vectorizer(object):
                 self.cm_sent[w2][w1] += 1
 
     def produce_matrices(self):
-        cur_sent = []
-        for i in range(len(self.data)):
-            if data.iloc[i].ID == 1:
-                self.count_words_in_sent(cur_sent)
-                # count_words_in_win2(confusion_matrix_win, cur_sent, data.LEMMA.value_counts())
-
-                cur_sent = []
-            if self.lemma_count[self.data.iloc[i].LEMMA] >= self.MIN_OCCUR:
-                cur_sent.append(self.data.iloc[i].LEMMA)
+        for name, sen in tqdm(self.data.groupby("Sentence")):
+            filterd_sent = [word for word in sen.LEMMA if self.lemma_count[word] >= self.MIN_OCCUR]
+            self.count_words_in_sent(filterd_sent)
 
     def sentence_vectorizer(self):
         v = DictVectorizer(sparse=True)
@@ -60,3 +56,5 @@ class Vectorizer(object):
 
     def get_inverse_sent_vec(self, word):
             return self.dict_vec.inverse_transform(self.sent_vecs[self.word_index[word]])
+
+Vectorizer(data_path)
