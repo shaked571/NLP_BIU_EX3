@@ -3,7 +3,11 @@ import re
 import os
 from collections import defaultdict, Counter
 from itertools import combinations
+
+import numpy as np
 from sklearn.feature_extraction import DictVectorizer
+from sklearn.preprocessing import normalize
+
 from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
 from stop_words import STOP_WORDS
@@ -43,7 +47,7 @@ class Vectorizer(object):
         self.cached_path_dir = os.path.join('.cache', self.cache_f_name)
         if os.path.exists(self.cached_path_dir) and use_cach:
             self.logger.info("Loading from cache. ")
-            self.logger.info("***Not verifying hyper parameters setup!***")
+            self.logger.info("Not verifying hyper parameters setup!")
             self.data = pd.read_pickle(os.path.join(self.cached_path_dir, 'data.pk'))
             self.lemma_count = self.data.LEMMA.value_counts()
             with open(os.path.join(self.cached_path_dir, 'confusion_matrix.pk'), 'rb') as f:
@@ -66,6 +70,7 @@ class Vectorizer(object):
 
         self.dict_vectors, self.vectors = self.vectorizer()
         self.word_vec_index = {word: idx for idx, word in enumerate(self.confusion_matrix.keys())}
+        self.index_vec_word = {idx: word for word, idx in self.word_vec_index.items()}
 
     def read_data(self, data_path):
         df = pd.read_csv(data_path,
@@ -89,9 +94,10 @@ class Vectorizer(object):
         return output
 
     def vectorizer(self):
-        v = DictVectorizer(sparse=True)
+        v = DictVectorizer(sparse=True, )
         # using the most_common we limit the context words to the 100 most common ones for each v (a.k.a a word)
-        X = v.fit_transform([dict(v.most_common(self.CONTEXT_LIMIT)) for v in self.confusion_matrix.values()])
+        data = [dict(v.most_common(self.CONTEXT_LIMIT)) for v in self.confusion_matrix.values()]
+        X = normalize(v.fit_transform(data), norm='l2')
 
         return v, X
 
@@ -103,9 +109,10 @@ class Vectorizer(object):
 
     def get_most_similar(self, word, top_n=10):
         w_v = self.vectors[self.word_vec_index[word]]
-        sims = self.vectors.dot(w_v)
-        most_similar_ids = sims.argspty()[-1:-top_n:-1]
-        return most_similar_ids
+        sims = w_v.dot(self.vectors.T)
+        most_similar_ids = sims.toarray()[0].argsort()[-1:-top_n:-1]
+        most_similar_words = [self.index_vec_word[idx] for idx in most_similar_ids.tolist()]
+        return most_similar_words
 
     def produce_matrices(self):
         pass
