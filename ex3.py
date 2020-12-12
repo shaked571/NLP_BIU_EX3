@@ -240,9 +240,9 @@ def main():
     args = parser.parse_args()
     if args.v == 1:
         vec = DependecyVector(args.file)
-    elif args.c == 2:
+    elif args.v == 2:
         vec = WindowVector(args.file)
-    elif args.c == 3:
+    elif args.v == 3:
         vec = DependecyVector(args.file)
     else:
         ValueError("Support vec - {1,2,3} see -help")
