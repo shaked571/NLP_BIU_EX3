@@ -13,7 +13,7 @@ from tqdm import tqdm
 from stop_words import STOP_WORDS
 import pickle as pk
 from datetime import datetime
-
+import argparse
 
 # data_path = r"C:\Dev\NLP_EX3\data\wikipedia.tinysample.trees.lemmatized"
 data_path = r"C:\Dev\NLP_EX3\data\wikipedia.sample.trees.lemmatized"
@@ -107,7 +107,7 @@ class Vectorizer(object):
     def get_word_vec(self, word):
             return self.vectors[self.word_vec_index[word]]
 
-    def get_most_similar(self, word, top_n=10):
+    def get_most_similar(self, word, top_n=20):
         w_v = self.vectors[self.word_vec_index[word]]
         sims = w_v.dot(self.vectors.T)
         most_similar_ids = sims.toarray()[0].argsort()[-1:-top_n:-1]
@@ -210,27 +210,48 @@ class DependecyVector(Vectorizer):
                 noun_gran_daughter = gran_daughters_connection[(gran_daughters_connection["POSTAG"] == "NN") | (gran_daughters_connection["POSTAG"] == "NNS")]
                 if noun_gran_daughter.empty:
                     continue
-                if len(noun_gran_daughter) > 1:
-                    self.logger.error(f"DUDE u were wrong! \n Lemma prep: {r_d.LEMMA}")
-                    raise Exception(f"DUDE u were wrong! \n Lemma prep: {r_d.LEMMA}")
+                # if len(noun_gran_daughter) > 1:
+                    # self.logger.error(f"DUDE u were wrong! \n Lemma prep: {r_d.LEMMA}")
+                    # self.logger.error(f"All lemmas:")
+                    # self.logger.error(f"{noun_gran_daughter.LEMMA}")
+                    # self.logger.error(f"choose: {noun_gran_daughter.iloc[0].LEMMA} ")
 
-                noun_lemma = noun_gran_daughter.iloc[0].LEMMA
-                cur_feature = self.create_feature(f"{r_d.DEPREL}_{r_d.LEMMA}", self.DAUGHTER_CON, noun_lemma)
+                for i in range(len(noun_gran_daughter)):
+                    noun_lemma = noun_gran_daughter.iloc[i].LEMMA
+                    cur_feature = self.create_feature(f"{r_d.DEPREL}_{r_d.LEMMA}", self.DAUGHTER_CON, noun_lemma)
+                    self.confusion_matrix[target_word.LEMMA][cur_feature] += 1
+
+
             else:
                 cur_feature = self.create_feature(r_d.DEPREL, self.DAUGHTER_CON, r_d.LEMMA)
-            self.confusion_matrix[target_word.LEMMA][cur_feature] += 1
+                self.confusion_matrix[target_word.LEMMA][cur_feature] += 1
+
+
 
     @staticmethod
     def create_feature(label, direction, connected_word):
         return f"{label}_{direction}_{connected_word}"
 
 
+def main():
+    parser = argparse.ArgumentParser(description='Vectorizer program')
+    parser.add_argument('file')
+    parser.add_argument('-v', default=1, type=int, help='Vector type - 1: Sentence , 2: Window , 3: Dependency  ')
+    args = parser.parse_args()
+    if args.v == 1:
+        vec = DependecyVector(args.file)
+    elif args.c == 2:
+        vec = WindowVector(args.file)
+    elif args.c == 3:
+        vec = DependecyVector(args.file)
+    else:
+        ValueError("Support vec - {1,2,3} see -help")
+        return
+
+    vec.dump_count_words()
+    for w in 'car bus hospital hotel gun bomb horse fox table bowl guitar piano'.split():
+        vec.logger.info(vec.get_most_similar(w))
 
 
-
-vec = SentenceVector(data_path)
-# vec = WindowVector(data_path)
-# vec = DependecyVector(data_path)
-vec.dump_count_words()
-vec.logger.info(vec.get_most_similar("boat"))
-a=2
+if __name__ == '__main__':
+        main()
