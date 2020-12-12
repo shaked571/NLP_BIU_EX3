@@ -4,7 +4,6 @@ import os
 from collections import defaultdict, Counter
 from itertools import combinations
 
-import numpy as np
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.preprocessing import normalize
 
