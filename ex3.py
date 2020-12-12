@@ -228,8 +228,8 @@ class DependecyVector(Vectorizer):
 
 
 
-# vec = SentenceVector(data_path)
-vec = WindowVector(data_path)
+vec = SentenceVector(data_path)
+# vec = WindowVector(data_path)
 # vec = DependecyVector(data_path)
 vec.dump_count_words()
 vec.logger.info(vec.get_most_similar("boat"))
