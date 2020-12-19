@@ -36,7 +36,8 @@ class Vectorizer(object):
         if not os.path.exists('.logs'):
             os.mkdir('.logs')
         current_time = datetime.now().strftime("%H%M%S")
-        logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
+        logging.basicConfig(level=logging.INFO,
+                            format="%(asctime)s [%(levelname)s] %(message)s",
                             handlers=[logging.FileHandler(os.path.join('.logs', f"nlp_ex3_{current_time}.log")),
                                       logging.StreamHandler()])
 
@@ -49,6 +50,7 @@ class Vectorizer(object):
             self.logger.info("Not verifying hyper parameters setup!")
             self.data = pd.read_pickle(os.path.join(self.cached_path_dir, 'data.pk'))
             self.lemma_count = self.data.LEMMA.value_counts()
+
             with open(os.path.join(self.cached_path_dir, 'confusion_matrix.pk'), 'rb') as f:
                 self.confusion_matrix = pk.load(f)
             self.logger.info("Finish loading from cache")
@@ -84,13 +86,13 @@ class Vectorizer(object):
         df['Sentence'] = (df['ID'].diff() < 0).cumsum()
         return df
 
-    def filter_words(self, words: pd.Series, extra_words_tofilter=None):
+    def filter_words(self, words: Union[pd.DataFrame, pd.Series], extra_words_tofilter=None):
         if extra_words_tofilter is None:
             extra_words_tofilter = set()
-        # remove the extra words you wanna filter by removing it from the counter (and tham it fails in th isin)
+        # remove the extra words you wanna filter by removing it from the counter (and tham it fails in the isin)
         words_filter = self.lemma_count[~self.lemma_count.index.isin(extra_words_tofilter)]
-        output = words[words.isin(words_filter[words_filter > self.MIN_OCCUR].index)]
-        return output
+        words = words[words['LEMMA'].isin(words_filter[words_filter > self.MIN_OCCUR].index)]
+        return words
 
     def vectorizer(self):
         v = DictVectorizer(sparse=True, )
@@ -171,7 +173,7 @@ class WindowVector(Vectorizer):
             self.confusion_matrix[pivot][w] += 1
 
 
-class DependecyVector(Vectorizer):
+class DependencyVector(Vectorizer):
     def __init__(self, data_path, use_cache=True):
         super().__init__(data_path, use_cache)
 
@@ -238,14 +240,22 @@ def main():
     parser.add_argument('-v', default=1, type=int, help='Vector type - 1: Sentence , 2: Window , 3: Dependency  ')
     args = parser.parse_args()
     if args.v == 1:
-        vec = DependecyVector(args.file)
+        vec = SentenceVector(args.file)
     elif args.v == 2:
         vec = WindowVector(args.file)
     elif args.v == 3:
-        vec = DependecyVector(args.file)
+        vec = DependencyVector(args.file)
     else:
         ValueError("Support vec - {1,2,3} see -help")
         return
+    # total_event = sum([sum(i.values()) for i in vec.confusion_matrix.values()])
+    pivot = 'car'
+    vec.logger.info(vec.get_best_pmi(pivot))
+
+
+
+
+
 
     vec.dump_count_words()
     for w in 'car bus hospital hotel gun bomb horse fox table bowl guitar piano'.split():
@@ -254,3 +264,5 @@ def main():
 
 if __name__ == '__main__':
         main()
+
+
