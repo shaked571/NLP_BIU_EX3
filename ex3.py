@@ -172,9 +172,9 @@ class SentenceVector(Vectorizer):
 
     def count_words_in_sent(self, sent):
         for w1, w2 in combinations(sent, 2):
-            if self.lemma_count[w1] >= self.CONTEXT_LIMIT:
+            if self.lemma_count[w1] >= self.CONTEXT_LIMIT and w1 not in STOP_WORDS:
                 self.confusion_matrix[w1][w2] += 1
-            if self.lemma_count[w2] >= self.CONTEXT_LIMIT:
+            if self.lemma_count[w2] >= self.CONTEXT_LIMIT and w2 not in STOP_WORDS:
                 self.confusion_matrix[w2][w1] += 1
 
     def produce_matrices(self):
@@ -253,7 +253,7 @@ class DependencyVector(Vectorizer):
     def update_daughters(self, filtered_sen, target_word):
         daughters_connection = filtered_sen[filtered_sen["HEAD"] == target_word["ID"]]
         for i, r_d in daughters_connection.iterrows():
-            if r_d.POSTAG == self.PREP_POS:
+            if r_d.POSTAG == self.PREP_POS and r_d.LEMMA not in STOP_WORDS:
                 gran_daughters_connection = filtered_sen[filtered_sen["HEAD"] == r_d["ID"]]
                 noun_gran_daughter = gran_daughters_connection[(gran_daughters_connection["POSTAG"] == "NN") | (gran_daughters_connection["POSTAG"] == "NNS")]
                 if noun_gran_daughter.empty:
