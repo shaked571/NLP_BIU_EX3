@@ -72,8 +72,12 @@ class Vectorizer(object):
         self.dict_vectors, self.vectors = self.vectorizer()
         self.word_vec_index = {word: idx for idx, word in enumerate(self.confusion_matrix.keys())}
         self.index_vec_word = {idx: word for word, idx in self.word_vec_index.items()}
+            # self.total_lemma = self.lemma_count.sum()
+        self.all_events = sum([sum(i.values()) for i in self.confusion_matrix.values()])
 
-    def read_data(self, data_path):
+
+    @staticmethod
+    def read_data(data_path):
         df = pd.read_csv(data_path,
                          sep='\t',
                          names=['ID', 'FORM', 'LEMMA', 'CPOSTAG', 'POSTAG', 'FEATS', 'HEAD', 'DEPREL', 'PHEAD',
@@ -130,10 +134,40 @@ class Vectorizer(object):
     def dump_context(self):
         f_name = "counts_contexts_dep.txt"
 
+    @abc.abstractmethod
+    def count(self, w):
+        pass
+
+    def common_prob(self, w1, w2):
+        neighbors_sum = sum(self.confusion_matrix[w1].values())
+        return self.confusion_matrix[w1][w2] / neighbors_sum
+
+    def pmi(self, w1, w2):
+        common_prob = self.confusion_matrix[w1][w2]
+        c_w1 = self.count(w1)
+        c_w2 = self.count(w2)
+        if all([i > 0 for i in [common_prob, c_w1, c_w2]]):
+            return np.log2(common_prob * self.all_events / (c_w1 * c_w2))
+        else:
+            return -np.inf
+
+
+    def get_best_pmi(self, w, top_n=20):
+        scores = [(w2, self.pmi(w, w2)) for w2 in self.confusion_matrix]
+        scores.sort(key=lambda x: x[1], reverse=True)
+        return scores[:top_n]
+
 
 class SentenceVector(Vectorizer):
     def __init__(self, data_path, use_cache=True):
         super().__init__(data_path, use_cache)
+
+    def count(self, w):
+        if w in self.lemma_count:
+            return self.lemma_count[w]
+        else:
+            return 0
+
 
     def count_words_in_sent(self, sent):
         for w1, w2 in combinations(sent, 2):
@@ -151,6 +185,13 @@ class SentenceVector(Vectorizer):
 class WindowVector(Vectorizer):
     def __init__(self, data_path, use_cache=True):
         super().__init__(data_path, use_cache)
+
+    def count(self, w):
+        if w in self.lemma_count:
+            return self.lemma_count[w]
+        else:
+            return 0
+
 
     def produce_matrices(self):
         #TODO verify if not need to calculate function word vectors if
@@ -180,7 +221,11 @@ class DependencyVector(Vectorizer):
     PARENT_CON = "P"
     DAUGHTER_CON = "D"
     PREP_POS = "IN"
-
+    def count(self, w):
+        if w in self.lemma_count:
+            return self.lemma_count[w]
+        else:
+            return 0
     def produce_matrices(self):
         for _, sen in tqdm(self.data.groupby("Sentence")):
             to_filter = self.filter_words(sen)
