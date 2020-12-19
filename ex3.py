@@ -211,12 +211,6 @@ class DependencyVector(Vectorizer):
                 noun_gran_daughter = gran_daughters_connection[(gran_daughters_connection["POSTAG"] == "NN") | (gran_daughters_connection["POSTAG"] == "NNS")]
                 if noun_gran_daughter.empty:
                     continue
-                # if len(noun_gran_daughter) > 1:
-                    # self.logger.error(f"DUDE u were wrong! \n Lemma prep: {r_d.LEMMA}")
-                    # self.logger.error(f"All lemmas:")
-                    # self.logger.error(f"{noun_gran_daughter.LEMMA}")
-                    # self.logger.error(f"choose: {noun_gran_daughter.iloc[0].LEMMA} ")
-
                 for i in range(len(noun_gran_daughter)):
                     noun_lemma = noun_gran_daughter.iloc[i].LEMMA
                     cur_feature = self.create_feature(f"{r_d.DEPREL}_{r_d.LEMMA}", self.DAUGHTER_CON, noun_lemma)
@@ -259,7 +253,7 @@ def main():
 
     vec.dump_count_words()
     for w in 'car bus hospital hotel gun bomb horse fox table bowl guitar piano'.split():
-        vec.logger.info(vec.get_most_similar(w))
+        vec.logger.info(w + ": " + str(vec.get_most_similar(w)))
 
 
 if __name__ == '__main__':
