@@ -196,8 +196,6 @@ class WindowVector(Vectorizer):
 
 
     def produce_matrices(self):
-        #TODO verify if not need to calculate function word vectors if
-        # needed, we will iterate again but wwe will count only the STOP WORDS
         filtered_words = self.filter_words(self.data)
         filtered_words = filtered_words.LEMMA
         for i, (w1back, w2back, pivot, w1front, w2front) in tqdm(enumerate(zip(filtered_words,
@@ -224,11 +222,13 @@ class DependencyVector(Vectorizer):
     PARENT_CON = "P"
     DAUGHTER_CON = "D"
     PREP_POS = "IN"
+
     def count(self, w):
         if w in self.lemma_count:
             return self.lemma_count[w]
         else:
             return 0
+
     def produce_matrices(self):
         filter_data = self.filter_words(self.data)
         for _, sen in tqdm(filter_data.groupby("Sentence")):
@@ -246,6 +246,8 @@ class DependencyVector(Vectorizer):
                     return
                 feature = self.create_feature(f"{parent.DEPREL}_{parent.LEMMA}", self.PARENT_CON, grand_parent.iloc[0].LEMMA)
             else:
+                if parent.LEMMA in STOP_WORDS:
+                    return
                 feature = self.create_feature(r.DEPREL, self.PARENT_CON, parent.LEMMA)
 
             self.confusion_matrix[r["LEMMA"]][feature] += 1
@@ -253,20 +255,19 @@ class DependencyVector(Vectorizer):
     def update_daughters(self, filtered_sen, target_word):
         daughters_connection = filtered_sen[filtered_sen["HEAD"] == target_word["ID"]]
         for i, r_d in daughters_connection.iterrows():
-            if r_d.POSTAG == self.PREP_POS and r_d.LEMMA not in STOP_WORDS:
+            if r_d.POSTAG == self.PREP_POS:
                 gran_daughters_connection = filtered_sen[filtered_sen["HEAD"] == r_d["ID"]]
                 noun_gran_daughter = gran_daughters_connection[(gran_daughters_connection["POSTAG"] == "NN") | (gran_daughters_connection["POSTAG"] == "NNS")]
                 if noun_gran_daughter.empty:
                     continue
-                for i in range(len(noun_gran_daughter)):
-                    noun_lemma = noun_gran_daughter.iloc[i].LEMMA
+                for j in range(len(noun_gran_daughter)):
+                    noun_lemma = noun_gran_daughter.iloc[j].LEMMA
                     cur_feature = self.create_feature(f"{r_d.DEPREL}_{r_d.LEMMA}", self.DAUGHTER_CON, noun_lemma)
                     self.confusion_matrix[target_word.LEMMA][cur_feature] += 1
-
-
             else:
-                cur_feature = self.create_feature(r_d.DEPREL, self.DAUGHTER_CON, r_d.LEMMA)
-                self.confusion_matrix[target_word.LEMMA][cur_feature] += 1
+                if r_d.LEMMA not in STOP_WORDS:
+                    cur_feature = self.create_feature(r_d.DEPREL, self.DAUGHTER_CON, r_d.LEMMA)
+                    self.confusion_matrix[target_word.LEMMA][cur_feature] += 1
 
 
 
