@@ -178,9 +178,10 @@ class SentenceVector(Vectorizer):
                 self.confusion_matrix[w2][w1] += 1
 
     def produce_matrices(self):
-        for _, sen in tqdm(self.data.groupby("Sentence")):
-            filterd_sent = self.filter_words(sen.LEMMA)
-            self.count_words_in_sent(filterd_sent)
+        data = self.filter_words(self.data)
+        data_clean = data.dropna(subset=['LEMMA'])
+        for _, sen in tqdm(data_clean.groupby("Sentence")):
+            self.count_words_in_sent(sen.LEMMA)
 
 
 class WindowVector(Vectorizer):
@@ -196,8 +197,9 @@ class WindowVector(Vectorizer):
 
     def produce_matrices(self):
         #TODO verify if not need to calculate function word vectors if
-        # needed, we will iterate agagin but wwe will count only the STOP WORDS
-        filtered_words = self.filter_words(self.data.LEMMA)
+        # needed, we will iterate again but wwe will count only the STOP WORDS
+        filtered_words = self.filter_words(self.data)
+        filtered_words = filtered_words.LEMMA
         for i, (w1back, w2back, pivot, w1front, w2front) in tqdm(enumerate(zip(filtered_words,
                                                                                filtered_words[1:],
                                                                                filtered_words[2:],
@@ -228,12 +230,11 @@ class DependencyVector(Vectorizer):
         else:
             return 0
     def produce_matrices(self):
-        for _, sen in tqdm(self.data.groupby("Sentence")):
-            to_filter = self.filter_words(sen)
-            filtered_sen = sen.loc[to_filter.LEMMA.dropna().index]
-            for i, r in filtered_sen.iterrows():
-                self.update_daughters(filtered_sen, r)
-                self.update_parent(filtered_sen, r)
+        filter_data = self.filter_words(self.data)
+        for _, sen in tqdm(filter_data.groupby("Sentence")):
+            for i, r in sen.iterrows():
+                self.update_daughters(sen, r)
+                self.update_parent(sen, r)
 
     def update_parent(self, filtered_sen, r):
         parent = filtered_sen[filtered_sen["ID"] == r["HEAD"]]
