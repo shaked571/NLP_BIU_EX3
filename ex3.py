@@ -115,8 +115,9 @@ class Vectorizer(object):
     def get_most_similar(self, word, top_n=20):
         w_v = self.vectors[self.word_vec_index[word]]
         sims = w_v.dot(self.vectors.T)
-        most_similar_ids = sims.toarray()[0].argsort()[-1:-top_n:-1]
+        most_similar_ids = sims.toarray()[0].argsort()[-1:-top_n + 1:-1]
         most_similar_words = [self.index_vec_word[idx] for idx in most_similar_ids.tolist()]
+        most_similar_words.pop(0)
         return most_similar_words
 
     def produce_matrices(self):
