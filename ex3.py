@@ -1,23 +1,23 @@
-import pandas as pd
+import argparse
 import re
 import os
+import logging
+from typing import Union
+
 from collections import defaultdict, Counter
 from itertools import combinations
-
-from sklearn.feature_extraction import DictVectorizer
-from sklearn.preprocessing import normalize
-
-from sklearn.metrics.pairwise import cosine_similarity
+import pandas as pd
+import numpy as np
 from tqdm import tqdm
 from stop_words import STOP_WORDS
 import pickle as pk
 from datetime import datetime
-import argparse
-
+from sklearn.feature_extraction import DictVectorizer
+from sklearn.preprocessing import normalize
+import abc
 # data_path = r"C:\Dev\NLP_EX3\data\wikipedia.tinysample.trees.lemmatized"
-data_path = r"C:\Dev\NLP_EX3\data\wikipedia.sample.trees.lemmatized"
+# data_path = r"C:\Dev\NLP_EX3\data\wikipedia.sample.trees.lemmatized"
 
-import logging
 
 
 class Vectorizer(object):
