@@ -44,32 +44,35 @@ class Vectorizer(ABC):
             self.logger.info("Loading from cache. ")
             self.logger.info("Not verifying hyper parameters setup!")
             self.data = pd.read_pickle(os.path.join(self.cached_path_dir, 'data.pk'))
-            self.lemma_count = self.data.LEMMA.value_counts()
-
+            lemma_count = self.data.LEMMA.value_counts()
+            self.lemma_count = lemma_count[lemma_count > self.MIN_OCCUR]
             with open(os.path.join(self.cached_path_dir, 'confusion_matrix.pk'), 'rb') as f:
                 self.confusion_matrix = pk.load(f)
             self.logger.info("Finish loading from cache")
 
         else:
+            self.logger.info("Start to process.")
+            self.logger.info(f"The cache path would be {self.cached_path_dir}")
             self.logger.info("STARTING loading data...")
             self.data = self.read_data(data_path)
             self.logger.info("FINISH loading data!")
-            self.lemma_count = self.data.LEMMA.value_counts()
+            lemma_count = self.data.LEMMA.value_counts()
+            self.lemma_count = lemma_count[lemma_count > self.MIN_OCCUR]
             self.confusion_matrix = defaultdict(Counter)
             self.produce_matrices()
             self.logger.info("Dumping confusion matrix, data, lemma to cache")
-            self.logger.info(f"Path to cahch: {self.cached_path_dir}")
+            self.logger.info(f"Path to cache: {self.cached_path_dir}")
             os.mkdir(self.cached_path_dir)
             self.data.to_pickle(os.path.join(self.cached_path_dir, 'data.pk'))
             with open(os.path.join(self.cached_path_dir, 'confusion_matrix.pk'), 'wb') as f:
                 pk.dump(self.confusion_matrix, f)
 
+        self.attribute_count, self.all_events = self.get_attribute_count()
+
         self.dict_vectors, self.vectors = self.vectorizer()
         self.word_vec_index = {word: idx for idx, word in enumerate(self.confusion_matrix.keys())}
         self.index_vec_word = {idx: word for word, idx in self.word_vec_index.items()}
-            # self.total_lemma = self.lemma_count.sum()
-        self.all_events = sum([sum(i.values()) for i in self.confusion_matrix.values()])
-
+        self.total_lemma = self.lemma_count.sum()
 
     @staticmethod
     def read_data(data_path):
@@ -92,26 +95,52 @@ class Vectorizer(ABC):
         return words
 
     def vectorizer(self):
-        v = DictVectorizer(sparse=True, )
+        dict_vector = DictVectorizer(sparse=True, )
         # using the most_common we limit the context words to the 100 most common ones for each v (a.k.a a word)
-        data = [dict(v.most_common(self.CONTEXT_LIMIT)) for v in self.confusion_matrix.values()]
-        X = normalize(v.fit_transform(data), norm='l2')
+        data = [(word, dict(attributes.most_common(self.CONTEXT_LIMIT))) for word, attributes in self.confusion_matrix.items()]
+        pmi_data = []
+        for word, attributes in data:
+            word_pmi_context = {}
+            for context in attributes:
+                word_pmi_context[context] = self.pmi(word, context)
+            pmi_data.append(word_pmi_context)
 
-        return v, X
+        vectors = normalize(dict_vector.fit_transform(pmi_data), norm='l2')
+        return dict_vector, vectors
 
     def get_inverse_vec(self, word):
         return self.dict_vectors.inverse_transform(self.vectors[self.word_vec_index[word]])
 
     def get_word_vec(self, word):
-            return self.vectors[self.word_vec_index[word]]
+        return self.vectors[self.word_vec_index[word]]
+
+    def efficient_algo(self, w_v):
+        res = []
+        w_v_indices_dict = {v: i for i, v in enumerate(w_v.indices)}
+        for vec_i, other in enumerate(self.vectors):
+            score = 0
+            mutual_indices = np.intersect1d(other.indices,  w_v.indices)
+            other_indices_dict = {v: i for i, v in enumerate(other.indices)}
+
+            if len(mutual_indices) == 0:
+                continue
+            for mutual_idx in mutual_indices:
+                w_v_i = w_v_indices_dict[mutual_idx]
+                other_i = other_indices_dict[mutual_idx]
+                score += w_v.data[w_v_i] * other.data[other_i]
+            res.append((vec_i, score))
+
+        return res
+
 
     def get_most_similar(self, word, top_n=20):
         w_v = self.vectors[self.word_vec_index[word]]
-        sims = w_v.dot(self.vectors.T)
-        most_similar_ids = sims.toarray()[0].argsort()[-1:-top_n + 1:-1]
-        most_similar_words = [self.index_vec_word[idx] for idx in most_similar_ids.tolist()]
-        most_similar_words.pop(0)
-        return most_similar_words
+        sims = self.efficient_algo(w_v)
+        sims.sort(key=lambda x: x[1], reverse=True)
+        most_similar_words2 = sims[:top_n + 1]
+        res = [self.index_vec_word[idx] for idx, _ in most_similar_words2]
+        res.pop(0)
+        return res
 
     def produce_matrices(self):
         pass
@@ -126,22 +155,68 @@ class Vectorizer(ABC):
             f.writelines(final_op)
 
 
+    def get_attribute_count(self):
+        res = defaultdict(int)
+        all_attribute = 0
+        for att_count_dict in self.confusion_matrix.values():
+            for attribute, att_count in att_count_dict.items():
+                res[attribute] += att_count
+                all_attribute += att_count
+        return res, all_attribute
+
+
     def count(self, w):
+        if w in self.lemma_count:
+            return self.lemma_count[w]
+        else:
+            return 0
+
+    @abc.abstractmethod
+    def count_attribute(self, att):
         pass
 
     def common_prob(self, w1, w2):
         neighbors_sum = sum(self.confusion_matrix[w1].values())
         return self.confusion_matrix[w1][w2] / neighbors_sum
 
-    def pmi(self, w1, w2):
-        common_prob = self.confusion_matrix[w1][w2]
-        c_w1 = self.count(w1)
-        c_w2 = self.count(w2)
-        if all([i > 0 for i in [common_prob, c_w1, c_w2]]):
-            return np.log2(common_prob * self.all_events / (c_w1 * c_w2))
-        else:
-            return -np.inf
 
+    def word_probe(self, w):
+        return self.count(w) / self.total_lemma
+
+    def attribute_probe(self, att):
+        return self.count_attribute(att) / self.all_events
+
+    def common_probe(self, word, att):
+        return self.confusion_matrix[word][att] / (self.all_events * self.total_lemma)
+
+
+    def pmi(self, w1, att):
+        common_prob = self.confusion_matrix[w1][att]
+        c_w1 = self.count(w1)
+        c_w2 = self.count_attribute(att)
+
+        return np.log2(common_prob * self.all_events / (c_w1 * c_w2))
+
+    def sanity_check(self):
+        w = 0
+        att_prob = 0
+        common = 0
+
+        for word in self.lemma_count:
+            w += self.word_probe(word)
+            for att in self.attribute_count:
+                common += self.common_probe(word, att)
+        for att in self.attribute_count:
+            att_prob += self.attribute_probe(att)
+        print(f"The total prob of word_prob is {w}")
+        print(f"The total prob of att_prob is {att_prob}")
+        print(f"The total prob of common_prob is {common}")
+        if all([np.isclose([w], np.array([1])),
+                np.isclose([att_prob], np.array([1])),
+                np.isclose([common], np.array([1]))]):
+            print("Pass the sanity check")
+        else:
+            print("Not passing the sanity check")
 
     def get_best_pmi(self, w, top_n=20):
         scores = [(att, self.pmi(w, att)) for att in self.confusion_matrix[w]]
@@ -153,13 +228,6 @@ class SentenceVector(Vectorizer):
     def __init__(self, data_path, use_cache=True):
         super().__init__(data_path, use_cache)
 
-    def count(self, w):
-        if w in self.lemma_count:
-            return self.lemma_count[w]
-        else:
-            return 0
-
-
     def count_words_in_sent(self, sent):
         for w1, w2 in combinations(sent, 2):
             if self.lemma_count[w1] >= self.CONTEXT_LIMIT and w1 not in STOP_WORDS:
@@ -168,41 +236,37 @@ class SentenceVector(Vectorizer):
                 self.confusion_matrix[w2][w1] += 1
 
     def produce_matrices(self):
-        data = self.filter_words(self.data)
+        data = self.filter_words(self.data, extra_words_tofilter=STOP_WORDS)
         data_clean = data.dropna(subset=['LEMMA'])
         for _, sen in tqdm(data_clean.groupby("Sentence")):
             self.count_words_in_sent(sen.LEMMA)
+
+    def count_attribute(self, att):
+        return self.count(att)
 
 
 class WindowVector(Vectorizer):
     def __init__(self, data_path, use_cache=True):
         super().__init__(data_path, use_cache)
 
-    def count(self, w):
-        if w in self.lemma_count:
-            return self.lemma_count[w]
-        else:
-            return 0
-
-
     def produce_matrices(self):
-        filtered_words = self.filter_words(self.data)
+        filtered_words = self.filter_words(self.data, extra_words_tofilter=STOP_WORDS)
         filtered_words = filtered_words.LEMMA
-        for i, (w1back, w2back, pivot, w1front, w2front) in tqdm(enumerate(zip(filtered_words,
-                                                                               filtered_words[1:],
-                                                                               filtered_words[2:],
-                                                                               filtered_words[3:],
-                                                                               filtered_words[4:]))):
+        for i, (w1back, w2back, pivot, w1front, w2front) in tqdm(enumerate(
+                zip(filtered_words, filtered_words[1:], filtered_words[2:], filtered_words[3:], filtered_words[4:]))):
 
             if self.lemma_count[pivot] >= self.CONTEXT_LIMIT:
-                    self.count_word(pivot, w1back)
-                    self.count_word(pivot, w2back)
-                    self.count_word(pivot, w1front)
-                    self.count_word(pivot, w1front)
+                self.add_count_to_confusion_mat(pivot, w1back)
+                self.add_count_to_confusion_mat(pivot, w2back)
+                self.add_count_to_confusion_mat(pivot, w1front)
+                self.add_count_to_confusion_mat(pivot, w1front)
 
-    def count_word(self, pivot, w):
+    def add_count_to_confusion_mat(self, pivot, w):
         if w not in STOP_WORDS:
             self.confusion_matrix[pivot][w] += 1
+
+    def count_attribute(self, att):
+        return self.count(att)
 
 
 class DependencyVector(Vectorizer):
@@ -213,14 +277,14 @@ class DependencyVector(Vectorizer):
     DAUGHTER_CON = "D"
     PREP_POS = "IN"
 
-    def count(self, w):
-        if w in self.lemma_count:
-            return self.lemma_count[w]
+    def count_attribute(self, att):
+        if att in self.attribute_count:
+            return self.attribute_count[att]
         else:
             return 0
 
     def produce_matrices(self):
-        filter_data = self.filter_words(self.data)
+        filter_data = self.filter_words(self.data, extra_words_tofilter=STOP_WORDS)
         for _, sen in tqdm(filter_data.groupby("Sentence")):
             for i, r in sen.iterrows():
                 self.update_daughters(sen, r)
@@ -273,6 +337,25 @@ def main():
     parser.add_argument('-v', type=int, help='Vector type - 1: Sentence , 2: Window , 3: Dependency  ')
     parser.add_argument('--all',  action="store_true", help='Run all vec - for plotting ')
     args = parser.parse_args()
+    if args.all:
+        vec_win = WindowVector(args.file)
+        vec_sen = SentenceVector(args.file)
+        vec_dep = DependencyVector(args.file)
+        with open('top20.txt', mode='w') as f:
+            for cur_w in 'car bus hospital hotel gun bomb horse fox table bowl guitar piano'.split():
+                win = vec_win.get_most_similar(cur_w)
+                sen = vec_sen.get_most_similar(cur_w)
+                dep = vec_dep.get_most_similar(cur_w)
+                f.write(f'{cur_w}\n')
+                for w, s, d in zip(win, sen, dep):
+                    f.write(f"{w} {s} {d}\n")
+                f.write('**********\n')
+        vec_win.sanity_check()
+        vec_sen.sanity_check()
+        vec_dep.sanity_check()
+
+        return
+
     if args.v == 1:
         vec = SentenceVector(args.file)
     elif args.v == 2:
@@ -283,6 +366,7 @@ def main():
         ValueError("Support vec - {1,2,3} see -help")
         return
 
+    vec.sanity_check()
 
 if __name__ == '__main__':
     main()
