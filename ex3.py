@@ -2,6 +2,7 @@ import argparse
 import re
 import os
 import logging
+from abc import ABC
 from typing import Union
 
 from collections import defaultdict, Counter
@@ -15,37 +16,31 @@ from datetime import datetime
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.preprocessing import normalize
 import abc
-# data_path = r"C:\Dev\NLP_EX3\data\wikipedia.tinysample.trees.lemmatized"
-# data_path = r"C:\Dev\NLP_EX3\data\wikipedia.sample.trees.lemmatized"
 
 
-
-class Vectorizer(object):
+class Vectorizer(ABC):
     MIN_OCCUR = 75
     # MIN_OCCUR = 1
 
     CONTEXT_LIMIT = 100
+
     # CONTEXT_LIMIT = 5
 
-
-
-    def __init__(self, data_path, use_cach=True):
+    def __init__(self, data_path, use_cache=True):
         self.logger = logging.getLogger(self.__class__.__name__)
         if not os.path.exists('.cache'):
             os.mkdir('.cache')
         if not os.path.exists('.logs'):
             os.mkdir('.logs')
         current_time = datetime.now().strftime("%H%M%S")
-        logging.basicConfig(level=logging.INFO,
-                            format="%(asctime)s [%(levelname)s] %(message)s",
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
                             handlers=[logging.FileHandler(os.path.join('.logs', f"nlp_ex3_{current_time}.log")),
                                       logging.StreamHandler()])
-
 
         f_name = re.split(r'[\\/]', data_path)[-1]
         self.cache_f_name = f"{f_name}.{self.__class__.__name__}"
         self.cached_path_dir = os.path.join('.cache', self.cache_f_name)
-        if os.path.exists(self.cached_path_dir) and use_cach:
+        if os.path.exists(self.cached_path_dir) and use_cache:
             self.logger.info("Loading from cache. ")
             self.logger.info("Not verifying hyper parameters setup!")
             self.data = pd.read_pickle(os.path.join(self.cached_path_dir, 'data.pk'))
@@ -78,14 +73,12 @@ class Vectorizer(object):
 
     @staticmethod
     def read_data(data_path):
-        df = pd.read_csv(data_path,
-                         sep='\t',
+        df = pd.read_csv(data_path, sep='\t',
                          names=['ID', 'FORM', 'LEMMA', 'CPOSTAG', 'POSTAG', 'FEATS', 'HEAD', 'DEPREL', 'PHEAD',
-                                'PDEPREL'],
-                         header=None, dtype=str,)
+                                'PDEPREL'], header=None, dtype=str, )
         df[["ID", "HEAD"]] = df[["ID", "HEAD"]].astype(int)
-        df[['FORM', 'LEMMA', 'CPOSTAG', 'POSTAG', 'FEATS','DEPREL', 'PHEAD','PDEPREL']] = \
-            df[['FORM', 'LEMMA', 'CPOSTAG', 'POSTAG', 'FEATS','DEPREL', 'PHEAD','PDEPREL']].astype(str)
+        df[['FORM', 'LEMMA', 'CPOSTAG', 'POSTAG', 'FEATS', 'DEPREL', 'PHEAD', 'PDEPREL']] = df[
+            ['FORM', 'LEMMA', 'CPOSTAG', 'POSTAG', 'FEATS', 'DEPREL', 'PHEAD', 'PDEPREL']].astype(str)
 
         df['Sentence'] = (df['ID'].diff() < 0).cumsum()
         return df
@@ -93,7 +86,7 @@ class Vectorizer(object):
     def filter_words(self, words: Union[pd.DataFrame, pd.Series], extra_words_tofilter=None):
         if extra_words_tofilter is None:
             extra_words_tofilter = set()
-        # remove the extra words you wanna filter by removing it from the counter (and tham it fails in the isin)
+        # remove the extra words you wanna filter by removing it from the counter (and than it fails in the 'isin')
         words_filter = self.lemma_count[~self.lemma_count.index.isin(extra_words_tofilter)]
         words = words[words['LEMMA'].isin(words_filter[words_filter > self.MIN_OCCUR].index)]
         return words
@@ -132,10 +125,7 @@ class Vectorizer(object):
         with open(f_name, mode='w') as f:
             f.writelines(final_op)
 
-    def dump_context(self):
-        f_name = "counts_contexts_dep.txt"
 
-    @abc.abstractmethod
     def count(self, w):
         pass
 
@@ -154,7 +144,7 @@ class Vectorizer(object):
 
 
     def get_best_pmi(self, w, top_n=20):
-        scores = [(w2, self.pmi(w, w2)) for w2 in self.confusion_matrix]
+        scores = [(att, self.pmi(w, att)) for att in self.confusion_matrix[w]]
         scores.sort(key=lambda x: x[1], reverse=True)
         return scores[:top_n]
 
@@ -244,7 +234,8 @@ class DependencyVector(Vectorizer):
                 grand_parent = filtered_sen[filtered_sen["ID"] == parent["HEAD"]]
                 if grand_parent.empty:
                     return
-                feature = self.create_feature(f"{parent.DEPREL}_{parent.LEMMA}", self.PARENT_CON, grand_parent.iloc[0].LEMMA)
+                feature = self.create_feature(f"{parent.DEPREL}_{parent.LEMMA}", self.PARENT_CON,
+                                              grand_parent.iloc[0].LEMMA)
             else:
                 if parent.LEMMA in STOP_WORDS:
                     return
@@ -257,7 +248,8 @@ class DependencyVector(Vectorizer):
         for i, r_d in daughters_connection.iterrows():
             if r_d.POSTAG == self.PREP_POS:
                 gran_daughters_connection = filtered_sen[filtered_sen["HEAD"] == r_d["ID"]]
-                noun_gran_daughter = gran_daughters_connection[(gran_daughters_connection["POSTAG"] == "NN") | (gran_daughters_connection["POSTAG"] == "NNS")]
+                noun_gran_daughter = gran_daughters_connection[
+                    (gran_daughters_connection["POSTAG"] == "NN") | (gran_daughters_connection["POSTAG"] == "NNS")]
                 if noun_gran_daughter.empty:
                     continue
                 for j in range(len(noun_gran_daughter)):
@@ -269,17 +261,17 @@ class DependencyVector(Vectorizer):
                     cur_feature = self.create_feature(r_d.DEPREL, self.DAUGHTER_CON, r_d.LEMMA)
                     self.confusion_matrix[target_word.LEMMA][cur_feature] += 1
 
-
-
     @staticmethod
     def create_feature(label, direction, connected_word):
         return f"{label}_{direction}_{connected_word}"
 
 
+
 def main():
     parser = argparse.ArgumentParser(description='Vectorizer program')
     parser.add_argument('file')
-    parser.add_argument('-v', default=1, type=int, help='Vector type - 1: Sentence , 2: Window , 3: Dependency  ')
+    parser.add_argument('-v', type=int, help='Vector type - 1: Sentence , 2: Window , 3: Dependency  ')
+    parser.add_argument('--all',  action="store_true", help='Run all vec - for plotting ')
     args = parser.parse_args()
     if args.v == 1:
         vec = SentenceVector(args.file)
@@ -290,21 +282,7 @@ def main():
     else:
         ValueError("Support vec - {1,2,3} see -help")
         return
-    # total_event = sum([sum(i.values()) for i in vec.confusion_matrix.values()])
-    pivot = 'car'
-    vec.logger.info(vec.get_best_pmi(pivot))
-
-
-
-
-
-
-    vec.dump_count_words()
-    for w in 'car bus hospital hotel gun bomb horse fox table bowl guitar piano'.split():
-        vec.logger.info(w + ": " + str(vec.get_most_similar(w)))
 
 
 if __name__ == '__main__':
-        main()
-
-
+    main()
