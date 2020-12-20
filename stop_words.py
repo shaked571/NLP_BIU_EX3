@@ -38,6 +38,6 @@ under until up unless upon us used using
 various very very via was we well were what whatever when whence whenever where
 whereafter whereas whereby wherein whereupon wherever whether which while
 whither who whoever whole whom whose why will with within without would
-yet you your yours yourself yourselves , . ( ) ? !
+yet you your yours yourself yourselves , . ( ) ? ! ; ' 's
 """.split()
 )
