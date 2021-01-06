@@ -2,6 +2,7 @@ import argparse
 import re
 import os
 import logging
+import abc
 from abc import ABC
 from typing import Union
 
@@ -15,16 +16,11 @@ import pickle as pk
 from datetime import datetime
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.preprocessing import normalize
-import abc
-
 
 class Vectorizer(ABC):
     MIN_OCCUR = 75
-    # MIN_OCCUR = 1
-
     CONTEXT_LIMIT = 100
 
-    # CONTEXT_LIMIT = 5
 
     def __init__(self, data_path, use_cache=True):
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -42,6 +38,8 @@ class Vectorizer(ABC):
         self.cached_path_dir = os.path.join('.cache', self.cache_f_name)
         if os.path.exists(self.cached_path_dir) and use_cache:
             self.logger.info("Loading from cache. ")
+            self.logger.info(f"The cache path is: {self.cached_path_dir}")
+
             self.logger.info("Not verifying hyper parameters setup!")
             self.data = pd.read_pickle(os.path.join(self.cached_path_dir, 'data.pk'))
             lemma_count = self.data.LEMMA.value_counts()
@@ -73,6 +71,7 @@ class Vectorizer(ABC):
         self.word_vec_index = {word: idx for idx, word in enumerate(self.confusion_matrix.keys())}
         self.index_vec_word = {idx: word for word, idx in self.word_vec_index.items()}
         self.total_lemma = self.lemma_count.sum()
+
 
     @staticmethod
     def read_data(data_path):
@@ -147,9 +146,10 @@ class Vectorizer(ABC):
 
     def dump_count_words(self):
         f_name = "counts_words.txt"
-        op_d = self.lemma_count.head(50).to_dict()
+        op_d = self.lemma_count[~self.lemma_count.index.isin(STOP_WORDS)].nlargest(50).to_dict()
         final_op = []
-        for word, count in zip(op_d.keys(), op_d.values()):
+
+        for word, count in op_d.items():
             final_op.append(f"{word} {count}\n")
         with open(f_name, mode='w') as f:
             f.writelines(final_op)
@@ -197,31 +197,14 @@ class Vectorizer(ABC):
 
         return np.log2(common_prob * self.all_events / (c_w1 * c_w2))
 
-    def sanity_check(self):
-        w = 0
-        att_prob = 0
-        common = 0
-
-        for word in self.lemma_count:
-            w += self.word_probe(word)
-            for att in self.attribute_count:
-                common += self.common_probe(word, att)
-        for att in self.attribute_count:
-            att_prob += self.attribute_probe(att)
-        print(f"The total prob of word_prob is {w}")
-        print(f"The total prob of att_prob is {att_prob}")
-        print(f"The total prob of common_prob is {common}")
-        if all([np.isclose([w], np.array([1])),
-                np.isclose([att_prob], np.array([1])),
-                np.isclose([common], np.array([1]))]):
-            print("Pass the sanity check")
-        else:
-            print("Not passing the sanity check")
-
     def get_best_pmi(self, w, top_n=20):
-        scores = [(att, self.pmi(w, att)) for att in self.confusion_matrix[w]]
+        scores = [(self.dict_vectors.feature_names_[att], self.pmi(w, self.dict_vectors.feature_names_[att]))
+                  for att in self.get_word_vec(w).indices]
+
         scores.sort(key=lambda x: x[1], reverse=True)
-        return scores[:top_n]
+        scores = scores[:top_n]
+        return [att for att, score in scores]
+
 
 
 class SentenceVector(Vectorizer):
@@ -301,8 +284,6 @@ class DependencyVector(Vectorizer):
                 feature = self.create_feature(f"{parent.DEPREL}_{parent.LEMMA}", self.PARENT_CON,
                                               grand_parent.iloc[0].LEMMA)
             else:
-                if parent.LEMMA in STOP_WORDS:
-                    return
                 feature = self.create_feature(r.DEPREL, self.PARENT_CON, parent.LEMMA)
 
             self.confusion_matrix[r["LEMMA"]][feature] += 1
@@ -321,13 +302,21 @@ class DependencyVector(Vectorizer):
                     cur_feature = self.create_feature(f"{r_d.DEPREL}_{r_d.LEMMA}", self.DAUGHTER_CON, noun_lemma)
                     self.confusion_matrix[target_word.LEMMA][cur_feature] += 1
             else:
-                if r_d.LEMMA not in STOP_WORDS:
-                    cur_feature = self.create_feature(r_d.DEPREL, self.DAUGHTER_CON, r_d.LEMMA)
-                    self.confusion_matrix[target_word.LEMMA][cur_feature] += 1
+                cur_feature = self.create_feature(r_d.DEPREL, self.DAUGHTER_CON, r_d.LEMMA)
+                self.confusion_matrix[target_word.LEMMA][cur_feature] += 1
 
     @staticmethod
     def create_feature(label, direction, connected_word):
         return f"{label}_{direction}_{connected_word}"
+
+    def dump_context(self):
+        f_name = 'counts_contexts_dep.txt'
+        op_d = sorted(self.attribute_count.items(), key=lambda x: x[1], reverse=True)[:50]
+        final_op = []
+        for att, count in op_d:
+            final_op.append(f"{att} {count}\n")
+        with open(f_name, mode='w') as f:
+            f.writelines(final_op)
 
 
 
@@ -337,11 +326,16 @@ def main():
     parser.add_argument('-v', type=int, help='Vector type - 1: Sentence , 2: Window , 3: Dependency  ')
     parser.add_argument('--all',  action="store_true", help='Run all vec - for plotting ')
     args = parser.parse_args()
+
     if args.all:
+
+        vec_dep = DependencyVector(args.file)
+        vec_dep.dump_count_words()
+        vec_dep.dump_context()
+
         vec_win = WindowVector(args.file)
         vec_sen = SentenceVector(args.file)
-        vec_dep = DependencyVector(args.file)
-        with open('top20.txt', mode='w') as f:
+        with open('submition_files/top20.txt', mode='w') as f:
             for cur_w in 'car bus hospital hotel gun bomb horse fox table bowl guitar piano'.split():
                 win = vec_win.get_most_similar(cur_w)
                 sen = vec_sen.get_most_similar(cur_w)
@@ -350,10 +344,25 @@ def main():
                 for w, s, d in zip(win, sen, dep):
                     f.write(f"{w} {s} {d}\n")
                 f.write('**********\n')
-        vec_win.sanity_check()
-        vec_sen.sanity_check()
-        vec_dep.sanity_check()
+                word_res = [{f'window': w, f'sentence':s , 'dependency': d } for w, s, d in zip(win, sen, dep)]
+                print("                      ", cur_w)
+                print(pd.DataFrame(word_res))
+                print()
 
+
+        with open('submition_files/context_top20.txt', mode='w') as f:
+                for cur_w in 'car bus hospital hotel gun bomb horse fox table bowl guitar piano'.split():
+                    win = vec_win.get_best_pmi(cur_w)
+                    sen = vec_sen.get_best_pmi(cur_w)
+                    dep = vec_dep.get_best_pmi(cur_w)
+                    f.write(f'{cur_w}\n')
+                    for w, s, d in zip(win, sen, dep):
+                        f.write(f"{w} {s} {d}\n")
+                    f.write('**********\n')
+                    word_res = [{f'window': w, f'sentence':s , 'dependency': d } for w, s, d in zip(win, sen, dep)]
+                    print("                      ", cur_w)
+                    print(pd.DataFrame(word_res))
+                    print()
         return
 
     if args.v == 1:
@@ -366,7 +375,6 @@ def main():
         ValueError("Support vec - {1,2,3} see -help")
         return
 
-    vec.sanity_check()
 
 if __name__ == '__main__':
     main()

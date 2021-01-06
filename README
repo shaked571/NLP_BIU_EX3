@@ -1,0 +1,7 @@
+In order to run the file, just run from the command line
+python ex3.py <PATH\TO\DATA> -v [1|2|3]
+When 1 - create Sentence, 2 - Window, 3-Dependency
+Or just type -h to see full description
+You can also type --all and than you will get all the vectors.
+
+For loading the vectors we used w2vec_loader file.
